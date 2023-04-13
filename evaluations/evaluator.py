@@ -17,6 +17,20 @@ import tensorflow.compat.v1 as tf
 from scipy import linalg
 from tqdm.auto import tqdm
 
+# fix CPython bug
+try:
+    import sys # Just in case
+    start = sys.version.index('|') # Do we have a modified sys.version?
+    end = sys.version.index('|', start + 1)
+    version_bak = sys.version # Backup modified sys.version
+    sys.version = sys.version.replace(sys.version[start:end+1], '') # Make it legible for platform module
+    import platform
+    platform.python_implementation() # Ignore result, we just need cache populated
+    platform._sys_version_cache[version_bak] = platform._sys_version_cache[sys.version] # Duplicate cache
+    sys.version = version_bak # Restore modified version string
+except ValueError: # Catch .index() method not finding a pipe
+    pass
+
 INCEPTION_V3_URL = "https://openaipublic.blob.core.windows.net/diffusion/jul-2021/ref_batches/classify_image_graph_def.pb"
 INCEPTION_V3_PATH = "classify_image_graph_def.pb"
 
