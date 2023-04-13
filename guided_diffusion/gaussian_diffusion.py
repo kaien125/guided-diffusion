@@ -252,78 +252,84 @@ class GaussianDiffusion:
                  - 'log_variance': the log of 'variance'.
                  - 'pred_xstart': the prediction for x_0.
         """
+        out_list = []
+
         if model_kwargs is None:
             model_kwargs = {}
 
         B, C = x.shape[:2]
         assert t.shape == (B,)
-        model_output = model(x, self._scale_timesteps(t), **model_kwargs)
+        model_output_list = [model(x, self._scale_timesteps(t), **model_kwargs)*3]
 
-        if self.model_var_type in [ModelVarType.LEARNED, ModelVarType.LEARNED_RANGE]:
-            assert model_output.shape == (B, C * 2, *x.shape[2:])
-            model_output, model_var_values = th.split(model_output, C, dim=1)
-            if self.model_var_type == ModelVarType.LEARNED:
-                model_log_variance = model_var_values
-                model_variance = th.exp(model_log_variance)
+        for model_output in model_output_list:
+            if self.model_var_type in [ModelVarType.LEARNED, ModelVarType.LEARNED_RANGE]:
+                assert model_output.shape == (B, C * 2, *x.shape[2:])
+                model_output, model_var_values = th.split(model_output, C, dim=1)
+                if self.model_var_type == ModelVarType.LEARNED:
+                    model_log_variance = model_var_values
+                    model_variance = th.exp(model_log_variance)
+                else:
+                    min_log = _extract_into_tensor(
+                        self.posterior_log_variance_clipped, t, x.shape
+                    )
+                    max_log = _extract_into_tensor(np.log(self.betas), t, x.shape)
+                    # The model_var_values is [-1, 1] for [min_var, max_var].
+                    frac = (model_var_values + 1) / 2
+                    model_log_variance = frac * max_log + (1 - frac) * min_log
+                    model_variance = th.exp(model_log_variance)
             else:
-                min_log = _extract_into_tensor(
-                    self.posterior_log_variance_clipped, t, x.shape
-                )
-                max_log = _extract_into_tensor(np.log(self.betas), t, x.shape)
-                # The model_var_values is [-1, 1] for [min_var, max_var].
-                frac = (model_var_values + 1) / 2
-                model_log_variance = frac * max_log + (1 - frac) * min_log
-                model_variance = th.exp(model_log_variance)
-        else:
-            model_variance, model_log_variance = {
-                # for fixedlarge, we set the initial (log-)variance like so
-                # to get a better decoder log likelihood.
-                ModelVarType.FIXED_LARGE: (
-                    np.append(self.posterior_variance[1], self.betas[1:]),
-                    np.log(np.append(self.posterior_variance[1], self.betas[1:])),
-                ),
-                ModelVarType.FIXED_SMALL: (
-                    self.posterior_variance,
-                    self.posterior_log_variance_clipped,
-                ),
-            }[self.model_var_type]
+                model_variance, model_log_variance = {
+                    # for fixedlarge, we set the initial (log-)variance like so
+                    # to get a better decoder log likelihood.
+                    ModelVarType.FIXED_LARGE: (
+                        np.append(self.posterior_variance[1], self.betas[1:]),
+                        np.log(np.append(self.posterior_variance[1], self.betas[1:])),
+                    ),
+                    ModelVarType.FIXED_SMALL: (
+                        self.posterior_variance,
+                        self.posterior_log_variance_clipped,
+                    ),
+                }[self.model_var_type]
             model_variance = _extract_into_tensor(model_variance, t, x.shape)
             model_log_variance = _extract_into_tensor(model_log_variance, t, x.shape)
 
-        def process_xstart(x):
-            if denoised_fn is not None:
-                x = denoised_fn(x)
-            if clip_denoised:
-                return x.clamp(-1, 1)
-            return x
+            def process_xstart(x):
+                if denoised_fn is not None:
+                    x = denoised_fn(x)
+                if clip_denoised:
+                    return x.clamp(-1, 1)
+                return x
 
-        if self.model_mean_type == ModelMeanType.PREVIOUS_X:
-            pred_xstart = process_xstart(
-                self._predict_xstart_from_xprev(x_t=x, t=t, xprev=model_output)
-            )
-            model_mean = model_output
-        elif self.model_mean_type in [ModelMeanType.START_X, ModelMeanType.EPSILON]:
-            if self.model_mean_type == ModelMeanType.START_X:
-                pred_xstart = process_xstart(model_output)
-            else:
+            if self.model_mean_type == ModelMeanType.PREVIOUS_X:
                 pred_xstart = process_xstart(
-                    self._predict_xstart_from_eps(x_t=x, t=t, eps=model_output)
+                    self._predict_xstart_from_xprev(x_t=x, t=t, xprev=model_output)
                 )
-            model_mean, _, _ = self.q_posterior_mean_variance(
-                x_start=pred_xstart, x_t=x, t=t
-            )
-        else:
-            raise NotImplementedError(self.model_mean_type)
+                model_mean = model_output
+            elif self.model_mean_type in [ModelMeanType.START_X, ModelMeanType.EPSILON]:
+                if self.model_mean_type == ModelMeanType.START_X:
+                    pred_xstart = process_xstart(model_output)
+                else:
+                    pred_xstart = process_xstart(
+                        self._predict_xstart_from_eps(x_t=x, t=t, eps=model_output)
+                    )
+                model_mean, _, _ = self.q_posterior_mean_variance(
+                    x_start=pred_xstart, x_t=x, t=t
+                )
+            else:
+                raise NotImplementedError(self.model_mean_type)
 
-        assert (
-            model_mean.shape == model_log_variance.shape == pred_xstart.shape == x.shape
-        )
-        return {
+            assert (
+                model_mean.shape == model_log_variance.shape == pred_xstart.shape == x.shape
+            )
+
+            out_list.append({
             "mean": model_mean,
             "variance": model_variance,
             "log_variance": model_log_variance,
             "pred_xstart": pred_xstart,
-        }
+        })
+            
+        return out_list
 
     def _predict_xstart_from_eps(self, x_t, t, eps):
         assert x_t.shape == eps.shape
@@ -353,7 +359,7 @@ class GaussianDiffusion:
             return t.float() * (1000.0 / self.num_timesteps)
         return t
 
-    def condition_mean(self, cond_fn, p_mean_var, x, t, model_kwargs=None):
+    def condition_mean(self, cond_fn, p_mean_var_list, x_list, t, model_kwargs=None):
         """
         Compute the mean for the previous step, given a function cond_fn that
         computes the gradient of a conditional log probability with respect to
@@ -362,11 +368,11 @@ class GaussianDiffusion:
 
         This uses the conditioning strategy from Sohl-Dickstein et al. (2015).
         """
-        gradient = cond_fn(x, self._scale_timesteps(t), **model_kwargs)
+        gradient, selected_idx = cond_fn(x_list, self._scale_timesteps(t), **model_kwargs)
         new_mean = (
-            p_mean_var["mean"].float() + p_mean_var["variance"] * gradient.float()
+            p_mean_var_list[selected_idx]["mean"].float() + p_mean_var_list[selected_idx]["variance"] * gradient.float()
         )
-        return new_mean
+        return new_mean, selected_idx
 
     def condition_score(self, cond_fn, p_mean_var, x, t, model_kwargs=None):
         """
@@ -419,7 +425,8 @@ class GaussianDiffusion:
                  - 'sample': a random sample from the model.
                  - 'pred_xstart': a prediction of x_0.
         """
-        out = self.p_mean_variance(
+        p_sample_out_list = []
+        out_list = self.p_mean_variance(
             model,
             x,
             t,
@@ -432,11 +439,17 @@ class GaussianDiffusion:
             (t != 0).float().view(-1, *([1] * (len(x.shape) - 1)))
         )  # no noise when t == 0
         if cond_fn is not None:
-            out["mean"] = self.condition_mean(
-                cond_fn, out, x, t, model_kwargs=model_kwargs
+            new_mean, selected_idx = self.condition_mean(
+                cond_fn, out_list, x, t, model_kwargs=model_kwargs
             )
-        sample = out["mean"] + nonzero_mask * th.exp(0.5 * out["log_variance"]) * noise
-        return {"sample": sample, "pred_xstart": out["pred_xstart"]}
+
+            out_list[selected_idx]["mean"] = new_mean
+
+        
+            sample = out_list[selected_idx]["mean"] + nonzero_mask * th.exp(0.5 * out_list[selected_idx]["log_variance"]) * noise
+            p_sample_out_list
+
+        return {"sample": sample, "pred_xstart": out_list[selected_idx]["pred_xstart"]}
 
     def p_sample_loop(
         self,
@@ -511,6 +524,7 @@ class GaussianDiffusion:
             img = noise
         else:
             img = th.randn(*shape, device=device)
+        #     img_list = [th.randn(*shape, device=device), th.randn(*shape, device=device), th.randn(*shape, device=device)]
         indices = list(range(self.num_timesteps))[::-1]
 
         if progress:

@@ -3,6 +3,22 @@ Like image_sample.py, but use a noisy image classifier to guide the sampling
 process towards more realistic images.
 """
 
+# fix CPython bug
+try:
+    import sys # Just in case
+    start = sys.version.index('|') # Do we have a modified sys.version?
+    end = sys.version.index('|', start + 1)
+    version_bak = sys.version # Backup modified sys.version
+    sys.version = sys.version.replace(sys.version[start:end+1], '') # Make it legible for platform module
+    import platform
+    platform.python_implementation() # Ignore result, we just need cache populated
+    platform._sys_version_cache[version_bak] = platform._sys_version_cache[sys.version] # Duplicate cache
+    sys.version = version_bak # Restore modified version string
+except ValueError: # Catch .index() method not finding a pipe
+    pass
+
+print(sys.argv)
+
 import argparse
 import os
 
@@ -51,14 +67,24 @@ def main():
         classifier.convert_to_fp16()
     classifier.eval()
 
-    def cond_fn(x, t, y=None):
+    def cond_fn(x_list, t, y=None):
+        selected_list = []
         assert y is not None
         with th.enable_grad():
-            x_in = x.detach().requires_grad_(True)
-            logits = classifier(x_in, t)
-            log_probs = F.log_softmax(logits, dim=-1)
-            selected = log_probs[range(len(logits)), y.view(-1)]
-            return th.autograd.grad(selected.sum(), x_in)[0] * args.classifier_scale
+            for x in x_list:
+                x_in = x.detach().requires_grad_(True)
+                logits = classifier(x_in, t)
+                log_probs = F.log_softmax(logits, dim=-1)
+                selected = log_probs[range(len(logits)), y.view(-1)]
+                selected_list.append(selected.item())
+            selected = max(selected_list)
+            selected_idx = selected_list.index(selected)
+            print('selected',selected.item())
+            print('selected_list', selected_list)
+            gradient = th.autograd.grad(selected.sum(), x_in)[0]
+            # print(gradient[0][0][0][0])
+            # print(th.sum(gradient, dim=(1,2,3))[0].item())
+            return gradient * args.classifier_scale, selected_idx
 
     def model_fn(x, t, y=None):
         assert y is not None
@@ -113,11 +139,11 @@ def main():
 def create_argparser():
     defaults = dict(
         clip_denoised=True,
-        num_samples=10000,
-        batch_size=16,
+        num_samples=2,
+        batch_size=1,
         use_ddim=False,
-        model_path="",
-        classifier_path="",
+        model_path="../models/64x64_diffusion.pt",
+        classifier_path="../models/64x64_classifier.pt",
         classifier_scale=1.0,
     )
     defaults.update(model_and_diffusion_defaults())
