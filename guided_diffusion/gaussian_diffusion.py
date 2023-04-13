@@ -290,8 +290,8 @@ class GaussianDiffusion:
                         self.posterior_log_variance_clipped,
                     ),
                 }[self.model_var_type]
-            model_variance = _extract_into_tensor(model_variance, t, x.shape)
-            model_log_variance = _extract_into_tensor(model_log_variance, t, x.shape)
+                model_variance = _extract_into_tensor(model_variance, t, x.shape)
+                model_log_variance = _extract_into_tensor(model_log_variance, t, x.shape)
 
             def process_xstart(x):
                 if denoised_fn is not None:
