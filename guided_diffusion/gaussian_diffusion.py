@@ -230,7 +230,7 @@ class GaussianDiffusion:
         return posterior_mean, posterior_variance, posterior_log_variance_clipped
 
     def p_mean_variance(
-        self, model, x, t, clip_denoised=True, denoised_fn=None, model_kwargs=None
+        self, model, x_list, t, clip_denoised=True, denoised_fn=None, model_kwargs=None
     ):
         """
         Apply the model to get p(x_{t-1} | x_t), as well as a prediction of
@@ -257,9 +257,11 @@ class GaussianDiffusion:
         if model_kwargs is None:
             model_kwargs = {}
 
-        B, C = x.shape[:2]
+        B, C = x_list[0].shape[:2]
         assert t.shape == (B,)
-        model_output_list = [model(x, self._scale_timesteps(t), **model_kwargs)*3]
+        model_output_list = []
+        for x in x_list:
+            model_output_list.append(model(x, self._scale_timesteps(t), **model_kwargs))
 
         for model_output in model_output_list:
             if self.model_var_type in [ModelVarType.LEARNED, ModelVarType.LEARNED_RANGE]:
@@ -401,7 +403,7 @@ class GaussianDiffusion:
     def p_sample(
         self,
         model,
-        x,
+        x_list,
         t,
         clip_denoised=True,
         denoised_fn=None,
@@ -425,37 +427,39 @@ class GaussianDiffusion:
                  - 'sample': a random sample from the model.
                  - 'pred_xstart': a prediction of x_0.
         """
-        p_sample_out_list = []
         out_list = self.p_mean_variance(
             model,
-            x,
+            x_list,
             t,
             clip_denoised=clip_denoised,
             denoised_fn=denoised_fn,
             model_kwargs=model_kwargs,
         )
-        noise = th.randn_like(x)
+        noise_list = []
+        for x in x_list:
+            noise_list.append(th.randn_like(x)) # different randn
         nonzero_mask = (
             (t != 0).float().view(-1, *([1] * (len(x.shape) - 1)))
         )  # no noise when t == 0
         if cond_fn is not None:
             new_mean, selected_idx = self.condition_mean(
-                cond_fn, out_list, x, t, model_kwargs=model_kwargs
+                cond_fn, out_list, x_list, t, model_kwargs=model_kwargs
             )
 
             out_list[selected_idx]["mean"] = new_mean
 
-        
-            sample = out_list[selected_idx]["mean"] + nonzero_mask * th.exp(0.5 * out_list[selected_idx]["log_variance"]) * noise
-            p_sample_out_list
+            sample_list = []
+            for noise in noise_list:
+                sample_list.append(out_list[selected_idx]["mean"] + nonzero_mask * th.exp(0.5 * out_list[selected_idx]["log_variance"]) * noise)
+            # sample = out_list[selected_idx]["mean"] + nonzero_mask * th.exp(0.5 * out_list[selected_idx]["log_variance"]) * noise
 
-        return {"sample": sample, "pred_xstart": out_list[selected_idx]["pred_xstart"]}
+        return {"sample_list": sample_list, "pred_xstart": out_list[selected_idx]["pred_xstart"]}
 
     def p_sample_loop(
         self,
         model,
         shape,
-        noise=None,
+        noise_list=None,
         clip_denoised=True,
         denoised_fn=None,
         cond_fn=None,
@@ -482,11 +486,11 @@ class GaussianDiffusion:
         :param progress: if True, show a tqdm progress bar.
         :return: a non-differentiable batch of samples.
         """
-        final = None
-        for sample in self.p_sample_loop_progressive(
+        final_list = None
+        for sample_list in self.p_sample_loop_progressive(
             model,
             shape,
-            noise=noise,
+            noise_list=noise_list,
             clip_denoised=clip_denoised,
             denoised_fn=denoised_fn,
             cond_fn=cond_fn,
@@ -494,14 +498,14 @@ class GaussianDiffusion:
             device=device,
             progress=progress,
         ):
-            final = sample
-        return final["sample"]
+            final_list = sample_list
+        return final_list["sample_list"]
 
     def p_sample_loop_progressive(
         self,
         model,
         shape,
-        noise=None,
+        noise_list=None,
         clip_denoised=True,
         denoised_fn=None,
         cond_fn=None,
@@ -520,10 +524,10 @@ class GaussianDiffusion:
         if device is None:
             device = next(model.parameters()).device
         assert isinstance(shape, (tuple, list))
-        if noise is not None:
-            img = noise
+        if noise_list is not None:
+            img_list = noise_list
         else:
-            img = th.randn(*shape, device=device)
+            img_list = [th.randn(*shape, device=device), th.randn(*shape, device=device), th.randn(*shape, device=device)]
         #     img_list = [th.randn(*shape, device=device), th.randn(*shape, device=device), th.randn(*shape, device=device)]
         indices = list(range(self.num_timesteps))[::-1]
 
@@ -536,17 +540,17 @@ class GaussianDiffusion:
         for i in indices:
             t = th.tensor([i] * shape[0], device=device)
             with th.no_grad():
-                out = self.p_sample(
+                out_list = self.p_sample(
                     model,
-                    img,
+                    img_list,
                     t,
                     clip_denoised=clip_denoised,
                     denoised_fn=denoised_fn,
                     cond_fn=cond_fn,
                     model_kwargs=model_kwargs,
                 )
-                yield out
-                img = out["sample"]
+                yield out_list
+                img_list = out_list["sample_list"]
 
     def ddim_sample(
         self,

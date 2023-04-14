@@ -68,6 +68,7 @@ def main():
     classifier.eval()
 
     def cond_fn(x_list, t, y=None):
+        print("sampler cond_fn time ", t)
         selected_list = []
         assert y is not None
         with th.enable_grad():
@@ -79,7 +80,7 @@ def main():
                 selected_list.append(selected.item())
             selected = max(selected_list)
             selected_idx = selected_list.index(selected)
-            print('selected',selected.item())
+            print('selected',selected)
             print('selected_list', selected_list)
             gradient = th.autograd.grad(selected.sum(), x_in)[0]
             # print(gradient[0][0][0][0])
