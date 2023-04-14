@@ -438,6 +438,7 @@ class GaussianDiffusion:
         noise_list = []
         for x in x_list:
             noise_list.append(th.randn_like(x)) # different randn
+        
         nonzero_mask = (
             (t != 0).float().view(-1, *([1] * (len(x.shape) - 1)))
         )  # no noise when t == 0

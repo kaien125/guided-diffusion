@@ -71,30 +71,37 @@ def main():
         print("sampler cond_fn time ", t)
         selected_list = []
         gradient_list = []
-        gradient_sum_list = []
+        x_in_list = []
         assert y is not None
         with th.enable_grad():
             for x in x_list:
                 x_in = x.detach().requires_grad_(True)
+                x_in_list.append(x_in)
                 logits = classifier(x_in, t)
                 log_probs = F.log_softmax(logits, dim=-1)
                 selected = log_probs[range(len(logits)), y.view(-1)]
                 selected_list.append(selected)
                 gradient = th.autograd.grad(selected.sum(), x_in)[0]
-                gradient_list.append(gradient)
-            selected = max(selected_list)
-            selected_idx = selected_list.index(selected)
+                # gradient_list.append(gradient)
+
+            selected_list_stack = th.stack(selected_list, dim=0)
+            # gradient_list_stack = th.stack(gradient_list, dim=0)
+
+            selected, selected_idx = th.max(selected_list_stack,dim=0)
+
+            gradient_selected = th.index_select(gradient_list_stack, 0, selected_idx) * args.classifier_scale
+            # selected_idx = selected_list.index(selected)
             # print('selected',selected)
             # print('selected_list', selected_list)
-            for gradient in gradient_list:
-                gradient_sum_list.append(th.sum(gradient, dim=(1,2,3))[0].item())
+            # for gradient in gradient_list:
+            #     gradient_sum_list.append(th.sum(gradient, dim=(1,2,3))[0].item())
             
             # print(gradient_sum_list)
-            selected_gradient_sum = min(gradient_sum_list, key=abs)
-            selected_gradient_sum_idx = gradient_sum_list.index(selected_gradient_sum)
+            # selected_gradient_sum = min(gradient_sum_list, key=abs)
+            # selected_gradient_sum_idx = gradient_sum_list.index(selected_gradient_sum)
             # print('selected_gradient_sum',selected_gradient_sum)
             # assert selected_idx == selected_gradient_sum_idx
-            return gradient_list[selected_idx] * args.classifier_scale, selected_idx
+            return gradient_selected, selected_idx
 
     def model_fn(x, t, y=None):
         assert y is not None
