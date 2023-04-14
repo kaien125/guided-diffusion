@@ -70,6 +70,8 @@ def main():
     def cond_fn(x_list, t, y=None):
         print("sampler cond_fn time ", t)
         selected_list = []
+        gradient_list = []
+        gradient_sum_list = []
         assert y is not None
         with th.enable_grad():
             for x in x_list:
@@ -77,15 +79,22 @@ def main():
                 logits = classifier(x_in, t)
                 log_probs = F.log_softmax(logits, dim=-1)
                 selected = log_probs[range(len(logits)), y.view(-1)]
-                selected_list.append(selected.item())
+                selected_list.append(selected)
+                gradient = th.autograd.grad(selected.sum(), x_in)[0]
+                gradient_list.append(gradient)
             selected = max(selected_list)
             selected_idx = selected_list.index(selected)
-            print('selected',selected)
-            print('selected_list', selected_list)
-            gradient = th.autograd.grad(selected.sum(), x_in)[0]
-            # print(gradient[0][0][0][0])
-            # print(th.sum(gradient, dim=(1,2,3))[0].item())
-            return gradient * args.classifier_scale, selected_idx
+            # print('selected',selected)
+            # print('selected_list', selected_list)
+            for gradient in gradient_list:
+                gradient_sum_list.append(th.sum(gradient, dim=(1,2,3))[0].item())
+            
+            # print(gradient_sum_list)
+            selected_gradient_sum = min(gradient_sum_list, key=abs)
+            selected_gradient_sum_idx = gradient_sum_list.index(selected_gradient_sum)
+            # print('selected_gradient_sum',selected_gradient_sum)
+            # assert selected_idx == selected_gradient_sum_idx
+            return gradient_list[selected_idx] * args.classifier_scale, selected_idx
 
     def model_fn(x, t, y=None):
         assert y is not None

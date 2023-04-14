@@ -70,13 +70,13 @@ class TimestepEmbedSequential(nn.Sequential, TimestepBlock):
     """
 
     def forward(self, x, emb):
-        print("TimestepEmbedSequential forward input ",x.shape)
+        # print("TimestepEmbedSequential forward input ",x.shape)
         for layer in self:
             if isinstance(layer, TimestepBlock):
                 x = layer(x, emb)
             else:
                 x = layer(x)
-        print("TimestepEmbedSequential forward output ",x.shape)
+        # print("TimestepEmbedSequential forward output ",x.shape)
         return x
 
 
@@ -236,7 +236,7 @@ class ResBlock(TimestepBlock):
         )
 
     def _forward(self, x, emb):
-        print("ResBlock _forward",x.shape)
+        # print("ResBlock _forward",x.shape)
         if self.updown:
             in_rest, in_conv = self.in_layers[:-1], self.in_layers[-1]
             h = in_rest(x)
@@ -300,7 +300,7 @@ class AttentionBlock(nn.Module):
         return checkpoint(self._forward, (x,), self.parameters(), True)
 
     def _forward(self, x):
-        print("AttentionBlock _forward",x.shape)
+        # print("AttentionBlock _forward",x.shape)
         b, c, *spatial = x.shape
         x = x.reshape(b, c, -1)
         qkv = self.qkv(self.norm(x))

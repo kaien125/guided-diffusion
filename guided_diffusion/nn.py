@@ -16,7 +16,7 @@ class SiLU(nn.Module):
 
 class GroupNorm32(nn.GroupNorm):
     def forward(self, x):
-        print("GroupNorm32 forward",x.shape)
+        # print("GroupNorm32 forward",x.shape)
         return super().forward(x.float()).type(x.dtype)
 
 
