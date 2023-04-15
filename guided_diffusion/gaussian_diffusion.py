@@ -14,6 +14,22 @@ import torch as th
 from .nn import mean_flat
 from .losses import normal_kl, discretized_gaussian_log_likelihood
 
+def dict_list_to_dict_tensor(dict_list):
+    out_dict = {}
+    for key in dict_list[0].keys():
+        value_list = []
+        for dict in dict_list:
+            value_list.append(dict[key])
+        out_dict[key] = th.stack(value_list, dim=0)
+    return out_dict
+
+def select_tensor_by_idx(gradient_list_stack, selected_idx_tensor):
+    selected_gradient_list = []
+    gradient_list_stack = th.transpose(gradient_list_stack, 1, 0)
+    for i, selected_idx in enumerate(selected_idx_tensor):
+        selected_gradient_list.append(gradient_list_stack[i][selected_idx])
+    selected_gradient_stack = th.stack(selected_gradient_list, dim=0)
+    return selected_gradient_stack
 
 def get_named_beta_schedule(schedule_name, num_diffusion_timesteps):
     """
@@ -371,8 +387,15 @@ class GaussianDiffusion:
         This uses the conditioning strategy from Sohl-Dickstein et al. (2015).
         """
         gradient, selected_idx = cond_fn(x_list, self._scale_timesteps(t), **model_kwargs)
+
+        p_mean_var_list = dict_list_to_dict_tensor(p_mean_var_list)
+        select_tensor_by_idx(p_mean_var_list["mean"], selected_idx)
+
+        # new_mean = (
+        #     p_mean_var_list[selected_idx]["mean"].float() + p_mean_var_list[selected_idx]["variance"] * gradient.float()
+        # )
         new_mean = (
-            p_mean_var_list[selected_idx]["mean"].float() + p_mean_var_list[selected_idx]["variance"] * gradient.float()
+            select_tensor_by_idx(p_mean_var_list["mean"], selected_idx).float() + select_tensor_by_idx(p_mean_var_list["variance"], selected_idx) * gradient.float()
         )
         return new_mean, selected_idx
 
@@ -447,17 +470,23 @@ class GaussianDiffusion:
                 cond_fn, out_list, x_list, t, model_kwargs=model_kwargs
             )
 
-            out_list[selected_idx]["mean"] = new_mean
+            # out_list[selected_idx]["mean"] = new_mean
+
+            selected_out = {}
+
+            out_list = dict_list_to_dict_tensor(out_list)
+            for key in out_list.keys():
+                selected_out[key] = select_tensor_by_idx(out_list[key], selected_idx)
 
             sample_list = []
             for noise in noise_list:
-                sample_list.append(out_list[selected_idx]["mean"] + nonzero_mask * th.exp(0.5 * out_list[selected_idx]["log_variance"]) * noise)
+                sample_list.append(selected_out["mean"] + nonzero_mask * th.exp(0.5 * selected_out["log_variance"]) * noise)
             # sample = out_list[selected_idx]["mean"] + nonzero_mask * th.exp(0.5 * out_list[selected_idx]["log_variance"]) * noise
 
-        if t == 0:
-            return {"sample_list": sample_list[0], "pred_xstart": out_list[selected_idx]["pred_xstart"]}
+        if t[0] == 0:
+            return {"sample_list": sample_list[0], "pred_xstart": selected_out["pred_xstart"]}
         else:
-            return {"sample_list": sample_list, "pred_xstart": out_list[selected_idx]["pred_xstart"]}
+            return {"sample_list": sample_list, "pred_xstart": selected_out["pred_xstart"]}
 
     def p_sample_loop(
         self,

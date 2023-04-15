@@ -28,6 +28,7 @@ import torch.distributed as dist
 import torch.nn.functional as F
 
 from guided_diffusion import dist_util, logger
+from guided_diffusion.gaussian_diffusion import dict_list_to_dict_tensor, select_tensor_by_idx
 from guided_diffusion.script_util import (
     NUM_CLASSES,
     model_and_diffusion_defaults,
@@ -89,34 +90,14 @@ def main():
 
             selected, selected_idx_tensor = th.max(selected_list_stack,dim=0)
 
-            x_in_list_stack = th.stack(x_in_list, dim=0)
-            x_in_list_stack = th.transpose(x_in_list_stack, 1, 0)
-            selected_x_in_list = []
-
             gradient_list_stack = th.stack(gradient_list, dim=0)
             gradient_list_stack = th.transpose(gradient_list_stack, 1, 0)
+            
             selected_gradient_list = []
-
             for i, selected_idx in enumerate(selected_idx_tensor):
                 selected_gradient_list.append(gradient_list_stack[i][selected_idx])
             selected_gradient_stack = th.stack(selected_gradient_list, dim=0)
 
-                # gradient_list.append(gradient)
-
-            
-
-            # gradient_selected = th.index_select(gradient_list_stack, 0, selected_idx) * args.classifier_scale
-            # selected_idx = selected_list.index(selected)
-            # print('selected',selected)
-            # print('selected_list', selected_list)
-            # for gradient in gradient_list:
-            #     gradient_sum_list.append(th.sum(gradient, dim=(1,2,3))[0].item())
-            
-            # print(gradient_sum_list)
-            # selected_gradient_sum = min(gradient_sum_list, key=abs)
-            # selected_gradient_sum_idx = gradient_sum_list.index(selected_gradient_sum)
-            # print('selected_gradient_sum',selected_gradient_sum)
-            # assert selected_idx == selected_gradient_sum_idx
             return selected_gradient_stack, selected_idx_tensor
 
     def model_fn(x, t, y=None):
