@@ -49,7 +49,7 @@
                 "--model_path",
                 "./models/64x64_diffusion.pt",
                 "--batch_size",
-                "2",
+                "1",
                 "--num_samples",
                 "1",
                 "--timestep_respacing",

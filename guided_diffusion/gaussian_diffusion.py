@@ -454,7 +454,10 @@ class GaussianDiffusion:
                 sample_list.append(out_list[selected_idx]["mean"] + nonzero_mask * th.exp(0.5 * out_list[selected_idx]["log_variance"]) * noise)
             # sample = out_list[selected_idx]["mean"] + nonzero_mask * th.exp(0.5 * out_list[selected_idx]["log_variance"]) * noise
 
-        return {"sample_list": sample_list, "pred_xstart": out_list[selected_idx]["pred_xstart"]}
+        if t == 0:
+            return {"sample_list": sample_list[0], "pred_xstart": out_list[selected_idx]["pred_xstart"]}
+        else:
+            return {"sample_list": sample_list, "pred_xstart": out_list[selected_idx]["pred_xstart"]}
 
     def p_sample_loop(
         self,

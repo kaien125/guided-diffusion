@@ -68,7 +68,7 @@ def main():
     classifier.eval()
 
     def cond_fn(x_list, t, y=None):
-        print("sampler cond_fn time ", t)
+        # print("sampler cond_fn time ", t)
         selected_list = []
         gradient_list = []
         x_in_list = []
@@ -81,15 +81,31 @@ def main():
                 log_probs = F.log_softmax(logits, dim=-1)
                 selected = log_probs[range(len(logits)), y.view(-1)]
                 selected_list.append(selected)
-                gradient = th.autograd.grad(selected.sum(), x_in)[0]
-                # gradient_list.append(gradient)
+                gradient = th.autograd.grad(selected.sum(), x_in)[0] * args.classifier_scale
+                gradient_list.append(gradient)
 
             selected_list_stack = th.stack(selected_list, dim=0)
-            # gradient_list_stack = th.stack(gradient_list, dim=0)
+            gradient_list_stack = th.stack(gradient_list, dim=0)
 
-            selected, selected_idx = th.max(selected_list_stack,dim=0)
+            selected, selected_idx_tensor = th.max(selected_list_stack,dim=0)
 
-            gradient_selected = th.index_select(gradient_list_stack, 0, selected_idx) * args.classifier_scale
+            x_in_list_stack = th.stack(x_in_list, dim=0)
+            x_in_list_stack = th.transpose(x_in_list_stack, 1, 0)
+            selected_x_in_list = []
+
+            gradient_list_stack = th.stack(gradient_list, dim=0)
+            gradient_list_stack = th.transpose(gradient_list_stack, 1, 0)
+            selected_gradient_list = []
+
+            for i, selected_idx in enumerate(selected_idx_tensor):
+                selected_gradient_list.append(gradient_list_stack[i][selected_idx])
+            selected_gradient_stack = th.stack(selected_gradient_list, dim=0)
+
+                # gradient_list.append(gradient)
+
+            
+
+            # gradient_selected = th.index_select(gradient_list_stack, 0, selected_idx) * args.classifier_scale
             # selected_idx = selected_list.index(selected)
             # print('selected',selected)
             # print('selected_list', selected_list)
@@ -101,7 +117,7 @@ def main():
             # selected_gradient_sum_idx = gradient_sum_list.index(selected_gradient_sum)
             # print('selected_gradient_sum',selected_gradient_sum)
             # assert selected_idx == selected_gradient_sum_idx
-            return gradient_selected, selected_idx
+            return selected_gradient_stack, selected_idx_tensor
 
     def model_fn(x, t, y=None):
         assert y is not None
