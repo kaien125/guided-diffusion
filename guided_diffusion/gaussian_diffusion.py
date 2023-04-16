@@ -478,6 +478,7 @@ class GaussianDiffusion:
             for key in out_list.keys():
                 selected_out[key] = select_tensor_by_idx(out_list[key], selected_idx)
 
+            selected_out["mean"] = new_mean
             sample_list = []
             for noise in noise_list:
                 sample_list.append(selected_out["mean"] + nonzero_mask * th.exp(0.5 * selected_out["log_variance"]) * noise)
