@@ -86,6 +86,10 @@ def main():
                 gradient_list.append(gradient)
 
             selected_list_stack = th.stack(selected_list, dim=0)
+            sel_list = []
+            for sel in selected_list:
+                sel_list.append(sel.item())
+            print(sel_list)
             gradient_list_stack = th.stack(gradient_list, dim=0)
 
             selected, selected_idx_tensor = th.max(selected_list_stack,dim=0)
