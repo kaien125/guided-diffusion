@@ -104,7 +104,7 @@ def main():
         assert y is not None
         return model(x, t, y if args.class_cond else None)
 
-    logger.log("sampling...")
+    logger.log("sampling for e diff...")
     all_images = []
     all_labels = []
     while len(all_images) * args.batch_size < args.num_samples:
